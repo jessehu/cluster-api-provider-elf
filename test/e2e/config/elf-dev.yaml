@@ -118,11 +118,14 @@ variables:
   # Following CAPE variables should be set before testing
   ELF_TEMPLATE: "336820d7-5ba5-4707-9d0c-8f3e583b950f"
   ELF_TEMPLATE_UPGRADE_TO: "c1347c27-ddd7-4b97-82e3-ca4e124623b4"
+  CONTROL_PLANE_ENDPOINT_IP: "127.0.0.1"
+  ELF_VLAN: "576ad467-d09e-4235-9dec-b615814ddc7e_c8a1e42d-e0f3-4d50-a190-53209a98f157"
+  ELF_CLUSTER: "576ad467-d09e-4235-9dec-b615814ddc7e"
   # Also following variables are required but it is recommended to use env variables to avoid disclosure of sensitive data
-  # CONTROL_PLANE_ENDPOINT_IP: "127.0.0.1"
-  # ELF_SERVER: "127.0.0.1"
-  # ELF_SERVER_USERNAME: "root"
-  # ELF_SERVER_PASSWORD: "root"
+  # TOWER_SERVER: "127.0.0.1"
+  # TOWER_SERVER_PORT: 8090
+  # TOWER_USERNAME: "root"
+  # TOWER_PASSWORD: "root"
 
 intervals:
   default/wait-controllers: ["5m", "10s"]
