@@ -54,11 +54,11 @@ ARCH ?= amd64
 ALL_ARCH = amd64 arm arm64 ppc64le s390x
 
 # Common docker variables
-IMAGE_NAME ?= manager
+IMAGE_NAME ?= cape-manager
 PULL_POLICY ?= Always
 
 # Release docker variables
-RELEASE_REGISTRY := gcr.io/cluster-api-provider-elf/release
+RELEASE_REGISTRY := smartxrocks
 RELEASE_CONTROLLER_IMG := $(RELEASE_REGISTRY)/$(IMAGE_NAME)
 
 # Development Docker variables
@@ -89,12 +89,12 @@ cluster-templates: kustomize ## Generate cluster templates
 	$(KUSTOMIZE) build $(E2E_TEMPLATE_DIR)/cluster-template-kcp-scale-in --load_restrictor none > $(E2E_TEMPLATE_DIR)/cluster-template-kcp-scale-in.yaml
 	$(KUSTOMIZE) build $(E2E_TEMPLATE_DIR)/cluster-template-md-remediation --load_restrictor none > $(E2E_TEMPLATE_DIR)/cluster-template-md-remediation.yaml
 
-test: generate fmt vet ## Run tests.
-	source ./hack/fetch_ext_bins.sh; fetch_tools; setup_envs; go test -v ./api/... ./controllers/... ./pkg/... -coverprofile cover.out
+test: generate ## Run tests.
+	source ./hack/fetch_ext_bins.sh; fetch_tools; setup_envs; go test -v ./api/... ./controllers/... ./pkg/... -coverprofile=cover.out
 
 .PHONY: e2e-image
 e2e-image: ## Build the e2e manager image
-	docker build --tag="gcr.io/k8s-staging-cluster-api/cape-manager:e2e" .
+	docker build --tag="smartxrocks/cape-manager:e2e" .
 
 .PHONY: e2e
 e2e: e2e-image
@@ -124,15 +124,21 @@ KIND := $(shell pwd)/bin/kind
 kind: ## Download kind locally if necessary.
 	$(call go-get-tool,$(KIND),sigs.k8s.io/kind@v0.11.0)
 
+GOLANGCI_LINT := $(shell pwd)/bin/golangci-lint
+golangci-lint: ## Download golangci-lint locally if necessary.
+	$(call go-get-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint@v1.42.1)
+
 ## --------------------------------------
 ## Linting and fixing linter errors
 ## --------------------------------------
 
-fmt: ## Run go fmt against code.
-	go fmt ./...
+.PHONY: lint
+lint: golangci-lint ## Lint codebase
+	$(GOLANGCI_LINT) run -v --fast=false
 
-vet: ## Run go vet against code.
-	go vet ./...
+.PHONY: lint-fix
+lint-fix: $(GOLANGCI_LINT) ## Lint the codebase and run auto-fixers if supported by the linter.
+	GOLANGCI_LINT_EXTRA_ARGS=--fix $(MAKE) lint
 
 ## --------------------------------------
 ## Generate
@@ -203,11 +209,11 @@ manifests: $(MANIFEST_DIR) $(BUILD_DIR) kustomize
 ## --------------------------------------
 
 .PHONY: build
-build: generate fmt vet ## Build manager binary.
+build: generate ## Build manager binary.
 	go build -o bin/manager main.go
 
 .PHONY: run
-run: generate fmt vet ## Run a controller from your host.
+run: generate ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: install

@@ -16,6 +16,10 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v2
         with:
-          version: v1.42.0
+          version: v1.42.1
 
       - run: make test
+
+      - uses: codecov/codecov-action@v2
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
