@@ -1,3 +1,19 @@
+/*
+Copyright 2022.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package service
 
 import (
@@ -5,12 +21,16 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	"github.com/haijianyang/cloudtower-go-sdk/client/operations"
-	"github.com/haijianyang/cloudtower-go-sdk/models"
 	"github.com/pkg/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clientcluster "github.com/smartxworks/cloudtower-go-sdk/client/cluster"
+	clienttask "github.com/smartxworks/cloudtower-go-sdk/client/task"
+	clientvlan "github.com/smartxworks/cloudtower-go-sdk/client/vlan"
+	clientvm "github.com/smartxworks/cloudtower-go-sdk/client/vm"
+	clientvmtemplate "github.com/smartxworks/cloudtower-go-sdk/client/vm_template"
+	"github.com/smartxworks/cloudtower-go-sdk/models"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
-	infrav1 "github.com/smartxworks/cluster-api-provider-elf/api/v1alpha4"
+	infrav1 "github.com/smartxworks/cluster-api-provider-elf/api/v1beta1"
 	"github.com/smartxworks/cluster-api-provider-elf/pkg/config"
 	"github.com/smartxworks/cluster-api-provider-elf/pkg/session"
 	"github.com/smartxworks/cluster-api-provider-elf/pkg/util"
@@ -46,7 +66,7 @@ type TowerVMService struct {
 	Logger  logr.Logger           `json:"logger"`
 }
 
-// Create VM using VM template.
+// Clone kicks off a clone operation on Elf to create a new virtual machine using VM template.
 func (svr *TowerVMService) Clone(
 	elfCluster *infrav1.ElfCluster,
 	machine *clusterv1.Machine,
@@ -78,7 +98,7 @@ func (svr *TowerVMService) Clone(
 	numCPUSockets := numCPUs / numCoresPerSocket
 
 	memoryMiB := elfMachine.Spec.MemoryMiB
-	if elfMachine.Spec.MemoryMiB <= 0 {
+	if memoryMiB <= 0 {
 		memoryMiB = config.VMMemoryMiB
 	}
 
@@ -89,11 +109,11 @@ func (svr *TowerVMService) Clone(
 
 	storagePolicy := models.VMVolumeElfStoragePolicyTypeREPLICA3THICKPROVISION
 	bus := models.BusVIRTIO
-	mountDisks := []*models.MountNewCreateDisksParamsItems0{{
-		Index: float64(0),
-		Boot:  util.TowerFloat64(0),
-		Bus:   &bus,
-		VMVolume: &models.MountNewCreateDisksParamsItems0VMVolume{
+	mountDisks := []*models.MountNewCreateDisksParams{{
+		// Index: util.TowerInt32(0),
+		Boot: util.TowerInt32(0),
+		Bus:  &bus,
+		VMVolume: &models.MountNewCreateDisksParamsVMVolume{
 			ElfStoragePolicy: &storagePolicy,
 			Name:             util.TowerString(config.VMDiskName),
 			Size:             util.TowerDisk(diskGiB),
@@ -115,29 +135,29 @@ func (svr *TowerVMService) Clone(
 		}
 
 		networks = append(networks, &models.VMCreateVMFromTemplateParamsCloudInitNetworksItems0{
-			NicIndex:  util.TowerFloat64(device.NetworkIndex),
+			NicIndex:  util.TowerInt32(device.NetworkIndex),
 			Type:      &networkType,
-			IPAddress: ipAddress,
-			Netmask:   device.Netmask,
+			IPAddress: util.TowerString(ipAddress),
+			Netmask:   util.TowerString(device.Netmask),
 		})
 	}
 
 	vmCreateVMFromTemplateParams := &models.VMCreateVMFromTemplateParams{
 		ClusterID:   cluster.ID,
 		Name:        util.TowerString(machine.Name),
-		Description: config.VMDescription,
+		Description: util.TowerString(config.VMDescription),
 		Vcpu:        util.TowerCPU(numCPUs),
 		CPUCores:    util.TowerCPU(numCoresPerSocket),
 		CPUSockets:  util.TowerCPU(numCPUSockets),
 		Memory:      util.TowerMemory(memoryMiB),
-		Firmware:    models.VMFirmwareBIOS,
-		Status:      models.VMStatusRUNNING,
-		Ha:          elfMachine.Spec.HA,
+		Firmware:    models.NewVMFirmware(models.VMFirmwareBIOS),
+		Status:      models.NewVMStatus(models.VMStatusRUNNING),
+		Ha:          util.TowerBool(elfMachine.Spec.HA),
 		TemplateID:  template.ID,
-		VMNics: []*models.VMNicParamsItems0{{
-			Model:         models.VMNicModelVIRTIO,
-			Enabled:       true,
-			Mirror:        false,
+		VMNics: []*models.VMNicParams{{
+			Model:         models.NewVMNicModel(models.VMNicModelVIRTIO),
+			Enabled:       util.TowerBool(true),
+			Mirror:        util.TowerBool(false),
 			ConnectVlanID: vlan.ID,
 		}},
 		DiskOperate: &models.VMCreateVMFromTemplateParamsDiskOperate{
@@ -146,19 +166,19 @@ func (svr *TowerVMService) Clone(
 			},
 		},
 		CloudInit: &models.VMCreateVMFromTemplateParamsCloudInit{
-			Hostname:            elfMachine.Name,
-			DefaultUserPassword: config.VMPassword,
-			UserData:            bootstrapData,
+			Hostname:            util.TowerString(elfMachine.Name),
+			DefaultUserPassword: util.TowerString(config.VMPassword),
+			UserData:            util.TowerString(bootstrapData),
 			Networks:            networks,
 		},
 	}
 	if elfMachine.Spec.AutoSchedule {
-		vmCreateVMFromTemplateParams.HostID = "AUTO_SCHEDULE"
+		vmCreateVMFromTemplateParams.HostID = util.TowerString("AUTO_SCHEDULE")
 	}
 
-	createVMFromTemplateParams := operations.NewCreateVMFromTemplateParams()
+	createVMFromTemplateParams := clientvm.NewCreateVMFromTemplateParams()
 	createVMFromTemplateParams.RequestBody = []*models.VMCreateVMFromTemplateParams{vmCreateVMFromTemplateParams}
-	createVMFromTemplateResp, err := svr.Session.CreateVMFromTemplate(createVMFromTemplateParams)
+	createVMFromTemplateResp, err := svr.Session.VM.CreateVMFromTemplate(createVMFromTemplateParams)
 	if err != nil {
 		return nil, err
 	}
@@ -166,14 +186,14 @@ func (svr *TowerVMService) Clone(
 	return createVMFromTemplateResp.Payload[0], nil
 }
 
-// Delete VM.
+// Delete destroys a virtual machine.
 func (svr *TowerVMService) Delete(uuid string) (*models.Task, error) {
-	deleteVMParams := operations.NewDeleteVMParams()
+	deleteVMParams := clientvm.NewDeleteVMParams()
 	deleteVMParams.RequestBody = &models.VMOperateParams{
 		Where: &models.VMWhereInput{LocalID: util.TowerString(uuid)},
 	}
 
-	deleteVMResp, err := svr.Session.DeleteVM(deleteVMParams)
+	deleteVMResp, err := svr.Session.VM.DeleteVM(deleteVMParams)
 	if err != nil {
 		return nil, err
 	}
@@ -181,14 +201,14 @@ func (svr *TowerVMService) Delete(uuid string) (*models.Task, error) {
 	return &models.Task{ID: deleteVMResp.Payload[0].TaskID}, nil
 }
 
-// Power Off VM.
+// PowerOff powers off a virtual machine.
 func (svr *TowerVMService) PowerOff(uuid string) (*models.Task, error) {
-	shutDownVMParams := operations.NewShutDownVMParams()
+	shutDownVMParams := clientvm.NewShutDownVMParams()
 	shutDownVMParams.RequestBody = &models.VMOperateParams{
 		Where: &models.VMWhereInput{LocalID: util.TowerString(uuid)},
 	}
 
-	shutDownVMResp, err := svr.Session.ShutDownVM(shutDownVMParams)
+	shutDownVMResp, err := svr.Session.VM.ShutDownVM(shutDownVMParams)
 	if err != nil {
 		return nil, err
 	}
@@ -196,14 +216,14 @@ func (svr *TowerVMService) PowerOff(uuid string) (*models.Task, error) {
 	return &models.Task{ID: shutDownVMResp.Payload[0].TaskID}, nil
 }
 
-// Power On VM.
+// PowerOn powers on a virtual machine.
 func (svr *TowerVMService) PowerOn(uuid string) (*models.Task, error) {
-	startVMParams := operations.NewStartVMParams()
+	startVMParams := clientvm.NewStartVMParams()
 	startVMParams.RequestBody = &models.VMStartParams{
 		Where: &models.VMWhereInput{LocalID: util.TowerString(uuid)},
 	}
 
-	startVMResp, err := svr.Session.StartVM(startVMParams)
+	startVMResp, err := svr.Session.VM.StartVM(startVMParams)
 	if err != nil {
 		return nil, err
 	}
@@ -211,16 +231,16 @@ func (svr *TowerVMService) PowerOn(uuid string) (*models.Task, error) {
 	return &models.Task{ID: startVMResp.Payload[0].TaskID}, nil
 }
 
-// Get the VM.
+// Get searches for a virtual machine.
 func (svr *TowerVMService) Get(id string) (*models.VM, error) {
-	getVmsParams := operations.NewGetVmsParams()
+	getVmsParams := clientvm.NewGetVmsParams()
 	getVmsParams.RequestBody = &models.GetVmsRequestBody{
 		Where: &models.VMWhereInput{
 			OR: []*models.VMWhereInput{{LocalID: util.TowerString(id)}, {ID: util.TowerString(id)}},
 		},
 	}
 
-	getVmsResp, err := svr.Session.GetVms(getVmsParams)
+	getVmsResp, err := svr.Session.VM.GetVms(getVmsParams)
 	if err != nil {
 		return nil, err
 	}
@@ -232,16 +252,16 @@ func (svr *TowerVMService) Get(id string) (*models.VM, error) {
 	return getVmsResp.Payload[0], nil
 }
 
-// Get the VM by name.
+// GetByName searches for a virtual machine by name.
 func (svr *TowerVMService) GetByName(name string) (*models.VM, error) {
-	getVmsParams := operations.NewGetVmsParams()
+	getVmsParams := clientvm.NewGetVmsParams()
 	getVmsParams.RequestBody = &models.GetVmsRequestBody{
 		Where: &models.VMWhereInput{
 			Name: util.TowerString(name),
 		},
 	}
 
-	getVmsResp, err := svr.Session.GetVms(getVmsParams)
+	getVmsResp, err := svr.Session.VM.GetVms(getVmsParams)
 	if err != nil {
 		return nil, err
 	}
@@ -253,16 +273,16 @@ func (svr *TowerVMService) GetByName(name string) (*models.VM, error) {
 	return getVmsResp.Payload[0], nil
 }
 
-// Get the cluster.
+// GetCluster searches for a cluster.
 func (svr *TowerVMService) GetCluster(id string) (*models.Cluster, error) {
-	getClustersParams := operations.NewGetClustersParams()
+	getClustersParams := clientcluster.NewGetClustersParams()
 	getClustersParams.RequestBody = &models.GetClustersRequestBody{
-		Where: &models.VMWhereInput{
-			OR: []*models.VMWhereInput{{LocalID: util.TowerString(id)}, {ID: util.TowerString(id)}},
+		Where: &models.ClusterWhereInput{
+			OR: []*models.ClusterWhereInput{{LocalID: util.TowerString(id)}, {ID: util.TowerString(id)}},
 		},
 	}
 
-	getClustersResp, err := svr.Session.GetClusters(getClustersParams)
+	getClustersResp, err := svr.Session.Cluster.GetClusters(getClustersParams)
 	if err != nil {
 		return nil, err
 	}
@@ -274,16 +294,16 @@ func (svr *TowerVMService) GetCluster(id string) (*models.Cluster, error) {
 	return getClustersResp.Payload[0], nil
 }
 
-// Get the vlan.
+// GetVlan searches for a vlan.
 func (svr *TowerVMService) GetVlan(id string) (*models.Vlan, error) {
-	getVlansParams := operations.NewGetVlansParams()
+	getVlansParams := clientvlan.NewGetVlansParams()
 	getVlansParams.RequestBody = &models.GetVlansRequestBody{
-		Where: &models.VMWhereInput{
+		Where: &models.VlanWhereInput{
 			LocalID: util.TowerString(id),
 		},
 	}
 
-	getVlansResp, err := svr.Session.GetVlans(getVlansParams)
+	getVlansResp, err := svr.Session.Vlan.GetVlans(getVlansParams)
 	if err != nil {
 		return nil, err
 	}
@@ -295,19 +315,19 @@ func (svr *TowerVMService) GetVlan(id string) (*models.Vlan, error) {
 	return getVlansResp.Payload[0], nil
 }
 
-// Get the VM template.
+// GetVMTemplate searches for a virtual machine template.
 func (svr *TowerVMService) GetVMTemplate(templateUUID string) (*models.VMTemplate, error) {
 	if _, err := uuid.Parse(templateUUID); err != nil {
 		return nil, err
 	}
 
-	getVMTemplatesParams := operations.NewGetVMTemplatesParams()
+	getVMTemplatesParams := clientvmtemplate.NewGetVMTemplatesParams()
 	getVMTemplatesParams.RequestBody = &models.GetVMTemplatesRequestBody{
-		Where: &models.VMWhereInput{
+		Where: &models.VMTemplateWhereInput{
 			LocalID: util.TowerString(templateUUID),
 		},
 	}
-	getVMTemplatesResp, err := svr.Session.GetVMTemplates(getVMTemplatesParams)
+	getVMTemplatesResp, err := svr.Session.VMTemplate.GetVMTemplates(getVMTemplatesParams)
 	if err != nil {
 		return nil, err
 	}
@@ -320,16 +340,16 @@ func (svr *TowerVMService) GetVMTemplate(templateUUID string) (*models.VMTemplat
 	return vmTemplates[0], nil
 }
 
-// Get the task by id.
+// GetTask searches for a task.
 func (svr *TowerVMService) GetTask(id string) (*models.Task, error) {
-	getTasksParams := operations.NewGetTasksParams()
+	getTasksParams := clienttask.NewGetTasksParams()
 	getTasksParams.RequestBody = &models.GetTasksRequestBody{
-		Where: &models.VMWhereInput{
+		Where: &models.TaskWhereInput{
 			ID: util.TowerString(id),
 		},
 	}
 
-	getTasksResp, err := svr.Session.GetTasks(getTasksParams)
+	getTasksResp, err := svr.Session.Task.GetTasks(getTasksParams)
 	if err != nil {
 		return nil, err
 	}
